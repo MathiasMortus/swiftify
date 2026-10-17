@@ -26,6 +26,8 @@ LibraryStore *s_instance = nullptr;
 
 const QString kPinnedKey = QStringLiteral("pinnedPlaylistIDs");
 const QString kSearchHistoryKey = QStringLiteral("searchPlaybackHistory");
+/// the saved songs' file in the song list cache: no playlist id looks like it
+const QString kSavedSongsCacheKey = QStringLiteral("saved-songs");
 const QString kCatchphrase = QStringLiteral("i mean i guess bro");
 const QString kReconnectToEdit = QStringLiteral("Reconnect your library once to create and edit playlists.");
 constexpr int kSearchHistoryLimit = 20;
@@ -472,6 +474,12 @@ void LibraryStore::showSavedSongs()
     cancelDetailLoads();
     navigate({Page::Songs});
     if (!m_hasLoadedSavedSongs) {
+        // what was loaded last time shows while the list is fetched again
+        if (m_savedSongs->count() == 0) {
+            if (const std::optional<QList<Song>> stored = m_songListCache.load(kSavedSongsCacheKey)) {
+                m_savedSongs->setSongs(*stored);
+            }
+        }
         detach(loadSavedSongs());
     }
 }
@@ -526,6 +534,13 @@ void LibraryStore::selectPlaylist(const Playlist &playlist)
     // shown at once when it is already known, and refreshed underneath: a
     // playlist can be edited from anywhere.
     const QList<Song> *opened = m_openedPlaylists.find(playlist.id);
+    // not opened since the app started: what was loaded last time, if any
+    if (!opened && !playlist.isLocal()) {
+        if (const std::optional<QList<Song>> stored = m_songListCache.load(playlist.id)) {
+            m_openedPlaylists.insert(playlist.id, *stored);
+            opened = m_openedPlaylists.find(playlist.id);
+        }
+    }
     const QList<Song> openedSongs = opened ? *opened : QList<Song> {};
     navigate({Page::Playlist, playlist.id, {}, {}, playlist});
     if (playlist.isLocal()) {
@@ -548,6 +563,7 @@ QCoro::Task<> LibraryStore::runPlaylistLoad(Playlist playlist, CancelToken token
         const QList<Song> loaded = co_await m_session->withLibraryAccessToken<QList<Song>>(
             [this, id = playlist.id](QString accessToken) { return m_session->webApi().playlistSongs(id, accessToken); });
         throwIfCancelled(token);
+        m_songListCache.save(playlist.id, loaded);
         if (!(m_destination == target)) {
             co_return;
         }
@@ -1028,6 +1044,7 @@ QCoro::Task<> LibraryStore::loadSavedSongs()
                 }
             }
             m_savedSongs->setSongs(merged);
+            m_songListCache.save(kSavedSongsCacheKey, loaded);
             for (const Song &song : merged) {
                 m_savedUris.insert(song.uri);
             }
@@ -1306,6 +1323,7 @@ void LibraryStore::deleteLocalPlaylist(const Playlist &playlist)
         emit pinsChanged();
     }
     m_openedPlaylists.remove(playlist.id);
+    m_songListCache.remove(playlist.id);
     if (selectedPlaylistId() == playlist.id) {
         setSongs({});
         m_playlistFilterQuery.clear();
@@ -1342,6 +1360,7 @@ QCoro::Task<> LibraryStore::runDelete(Playlist playlist)
         emit pinsChanged();
     }
     m_openedPlaylists.remove(playlist.id);
+    m_songListCache.remove(playlist.id);
     setPlaylistList(playlists);
     if (selectedPlaylistId() == playlist.id) {
         setSongs({});
@@ -1513,6 +1532,7 @@ void LibraryStore::reset()
     m_playlistSongs->clear();
     m_displayedPlaylistSongs->clear();
     m_openedPlaylists.clear();
+    m_songListCache.clear();
     m_openedAlbums.clear();
     m_openedArtists.clear();
     m_savedSongs->clear();

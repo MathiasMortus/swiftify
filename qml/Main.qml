@@ -10,7 +10,12 @@ ApplicationWindow {
     id: window
 
     property real sidebarWidth: 232
-    readonly property real effectiveSidebarWidth: Math.max(132, Math.min(sidebarWidth, width * 0.28))
+    /// the window's size as its content lays out in it, smaller than the
+    /// window's own when zoomed in (ctrl +) and larger when zoomed out
+    readonly property real zoom: Settings.zoom
+    readonly property real layoutWidth: width / zoom
+    readonly property real layoutHeight: height / zoom
+    readonly property real effectiveSidebarWidth: Math.max(132, Math.min(sidebarWidth, layoutWidth * 0.28))
     readonly property bool inAppWindowControls: !App.macOS && (App.windows ? !Settings.nativeTitleBar : Settings.showWindowControls)
     /// the strip the traffic lights sit in, kept clear above the sidebar
     readonly property real titleBarInset: App.macOS ? Math.max(28, shell.SafeArea.margins.top)
@@ -18,14 +23,15 @@ ApplicationWindow {
 
     width: 1280
     height: 780
-    minimumWidth: 526
-    minimumHeight: 410
-    readonly property bool rightPanelFits: width - effectiveSidebarWidth - Appearance.sizes.sideSheetWidth - 32 >= 404
+    minimumWidth: Math.ceil(526 * zoom)
+    minimumHeight: Math.ceil(410 * zoom)
+    readonly property bool rightPanelFits: layoutWidth - effectiveSidebarWidth - Appearance.sizes.sideSheetWidth - 32 >= 404
 
     function closeCrowdedPanels() {
         if (!rightPanelFits) {
             Player.showingLyrics = false
             Player.showingQueue = false
+            Player.showingNowPlaying = false
         }
     }
     onRightPanelFitsChanged: closeCrowdedPanels()
@@ -53,6 +59,7 @@ ApplicationWindow {
 
     Component.onCompleted: {
         if (App.windows) App.setNativeTitleBar(window, Settings.nativeTitleBar)
+        findZoomedItems()
     }
 
     Connections {
@@ -170,6 +177,53 @@ ApplicationWindow {
 
     MacTitleBar {
         target: window
+    }
+
+    // the zoom scales the window's content and its overlay (the popups,
+    // menus and dialogs) from the top left corner, and lays each out at the
+    // window's size divided by it. qt sizes both to the window itself as it
+    // resizes, so each is set back whenever it changes
+    readonly property real zoomStep: 0.1
+    function setZoom(value: real) {
+        Settings.zoom = Math.round(Math.min(2, Math.max(0.5, value)) * 10) / 10
+        toast.show("Zoom " + Math.round(Settings.zoom * 100) + "%")
+    }
+    property list<Item> zoomedItems
+    function fitZoomed(item: Item) {
+        // worked out here rather than read off layoutWidth, whose binding
+        // has not caught up yet while the window's own size changes
+        const scale = Settings.zoom
+        item.transformOrigin = Item.TopLeft
+        item.scale = scale
+        if (Math.abs(item.width - width / scale) > 0.01) {
+            item.width = width / scale
+        }
+        if (Math.abs(item.height - height / scale) > 0.01) {
+            item.height = height / scale
+        }
+    }
+    function fitAllZoomed() {
+        for (const item of zoomedItems) {
+            fitZoomed(item)
+        }
+    }
+    onZoomChanged: fitAllZoomed()
+    onWidthChanged: fitAllZoomed()
+    onHeightChanged: fitAllZoomed()
+    Instantiator {
+        model: window.zoomedItems
+        delegate: Connections {
+            required property Item modelData
+            target: modelData
+            function onWidthChanged() { window.fitZoomed(modelData) }
+            function onHeightChanged() { window.fitZoomed(modelData) }
+        }
+    }
+    // the content's control and the overlay, the root item's children
+    function findZoomedItems() {
+        const root = contentItem.parent.parent
+        zoomedItems = root.children.filter(item => item === contentItem.parent || String(item).startsWith("QQuickOverlay"))
+        fitAllZoomed()
     }
 
     Item {
@@ -298,7 +352,8 @@ ApplicationWindow {
         Item {
             id: inspector
             objectName: "mainInspector"
-            readonly property bool shown: (Player.showingLyrics || Player.showingQueue) && !UiState.immersiveOpen
+            readonly property bool shown: (Player.showingLyrics || Player.showingQueue || Player.showingNowPlaying)
+                                          && !UiState.immersiveOpen
                                           && !UiState.needsSetup && window.rightPanelFits
             anchors.right: parent.right
             anchors.rightMargin: shown ? 8 : 0
@@ -333,6 +388,12 @@ ApplicationWindow {
                 QueuePanel {
                     anchors.fill: parent
                     Reveal.shown: Player.showingQueue
+                }
+                NowPlayingPanel {
+                    anchors.fill: parent
+                    Reveal.shown: Player.showingNowPlaying
+                    suspended: UiState.immersiveOpen
+                    onImmersiveRequested: UiState.immersiveOpen = true
                 }
             }
         }
@@ -808,6 +869,12 @@ ApplicationWindow {
     }
 
     Shortcut { sequences: [StandardKey.Find]; enabled: !App.macOS; onActivated: topBar.focusSearch() }
+
+    // spelled out rather than StandardKey.ZoomIn, which holds ctrl + too: the
+    // same key twice in one shortcut is ambiguous, and neither acts
+    Shortcut { sequences: ["Ctrl++", "Ctrl+="]; onActivated: window.setZoom(window.zoom + window.zoomStep) }
+    Shortcut { sequences: ["Ctrl+-"]; onActivated: window.setZoom(window.zoom - window.zoomStep) }
+    Shortcut { sequence: "Ctrl+0"; onActivated: window.setZoom(1) }
 
     Loader {
         active: App.nativeMenuBar

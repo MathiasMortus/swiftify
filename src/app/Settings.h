@@ -53,6 +53,8 @@ class Settings : public QObject {
     Q_PROPERTY(bool showWindowControls READ showWindowControls WRITE setShowWindowControls NOTIFY showWindowControlsChanged FINAL)
     Q_PROPERTY(bool nativeTitleBar READ nativeTitleBar WRITE setNativeTitleBar NOTIFY nativeTitleBarChanged FINAL)
     Q_PROPERTY(bool trayIcon READ trayIcon WRITE setTrayIcon NOTIFY trayIconChanged FINAL)
+    /// the whole window's zoom, as ctrl + and ctrl - set it
+    Q_PROPERTY(double zoom READ zoom WRITE setZoom NOTIFY zoomChanged FINAL)
 
 public:
     /// the default file, ~/.config/Swiftify/Swiftify.conf. no default argument:
@@ -137,6 +139,8 @@ public:
     /// linux only
     bool trayIcon() const { return m_trayIcon; }
     void setTrayIcon(bool value);
+    double zoom() const { return m_zoom; }
+    void setZoom(double value);
 
 signals:
     void visualizersEnabledChanged();
@@ -165,6 +169,7 @@ signals:
     void showWindowControlsChanged();
     void nativeTitleBarChanged();
     void trayIconChanged();
+    void zoomChanged();
 
 private:
     void load();
@@ -201,6 +206,7 @@ private:
     bool m_nativeTitleBar = true;
 #endif
     bool m_trayIcon = true;
+    double m_zoom = 1.0;
 };
 
 } // namespace swiftify

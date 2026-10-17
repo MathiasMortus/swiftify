@@ -9,8 +9,12 @@
 #include <QNetworkReply>
 #include <QSet>
 #include <QCoroNetworkReply>
+#include <QCoroTimer>
 
+#include <chrono>
+#include <exception>
 #include <memory>
+#include <vector>
 
 namespace swiftify {
 
@@ -122,6 +126,67 @@ QCoro::Task<> WebApi::collectPages(QUrl firstUrl, QString accessToken,
     }
 }
 
+QCoro::Task<QJsonObject> WebApi::requestPage(QUrl url, QString accessToken)
+{
+    // set in the handler and waited out after it: there is no co_await in a catch
+    int retryAfter = 0;
+    try {
+        co_return (co_await requestJson(url, "GET", accessToken)).object();
+    } catch (const SpotifyError &error) {
+        // a short wait is worth it; a long one is the caller's to report
+        if (error.kind() != SpotifyError::Kind::RateLimited || error.retryAfterSeconds() > 10) {
+            throw;
+        }
+        retryAfter = std::max(1, error.retryAfterSeconds());
+    }
+    co_await QCoro::sleepFor(std::chrono::seconds(retryAfter));
+    co_return (co_await requestJson(url, "GET", accessToken)).object();
+}
+
+QCoro::Task<> WebApi::collectOffsetPages(QString path, QUrlQuery query, QString accessToken,
+                                         std::function<void(const QJsonObject &)> onPage)
+{
+    constexpr int kPageSize = 50;
+    constexpr int kAtOnce = 4;
+    query.removeAllQueryItems(QStringLiteral("limit"));
+    query.addQueryItem(QStringLiteral("limit"), QString::number(kPageSize));
+    const auto pageUrl = [&](int offset) {
+        QUrlQuery paged = query;
+        paged.addQueryItem(QStringLiteral("offset"), QString::number(offset));
+        return apiUrl(path, paged);
+    };
+
+    const QJsonObject first = co_await requestPage(pageUrl(0), accessToken);
+    onPage(first);
+    const int total = first.value(QStringLiteral("total")).toInt();
+
+    for (int start = kPageSize; start < total; start += kPageSize * kAtOnce) {
+        // started together, then each awaited in turn, every one to the end
+        // even when one fails: a request is not left running unowned
+        std::vector<QCoro::Task<QJsonObject>> batch;
+        for (int offset = start; offset < std::min(total, start + kPageSize * kAtOnce); offset += kPageSize) {
+            batch.push_back(requestPage(pageUrl(offset), accessToken));
+        }
+        std::vector<QJsonObject> pages;
+        std::exception_ptr failure;
+        for (QCoro::Task<QJsonObject> &task : batch) {
+            try {
+                pages.push_back(co_await task);
+            } catch (...) {
+                if (!failure) {
+                    failure = std::current_exception();
+                }
+            }
+        }
+        if (failure) {
+            std::rethrow_exception(failure);
+        }
+        for (const QJsonObject &page : pages) {
+            onPage(page);
+        }
+    }
+}
+
 QCoro::Task<Profile> WebApi::profile(QString accessToken)
 {
     const QJsonDocument document = co_await requestJson(apiUrl(QStringLiteral("/v1/me")), "GET", accessToken);
@@ -167,16 +232,16 @@ QCoro::Task<QList<Song>> WebApi::playlistSongs(QString playlistId, QString acces
     QList<Song> result;
     const QUrlQuery query {{QStringLiteral("limit"), QStringLiteral("50")},
                            {QStringLiteral("additional_types"), QStringLiteral("track")}};
-    co_await collectPages(apiUrl(QStringLiteral("/v1/playlists/%1/items").arg(playlistId), query), accessToken,
-                          [&result](const QJsonObject &page) { appendWrappedTracks(result, page); });
+    co_await collectOffsetPages(QStringLiteral("/v1/playlists/%1/items").arg(playlistId), query, accessToken,
+                                [&result](const QJsonObject &page) { appendWrappedTracks(result, page); });
     co_return result;
 }
 
 QCoro::Task<QList<Song>> WebApi::savedSongs(QString accessToken)
 {
     QList<Song> result;
-    co_await collectPages(apiUrl(QStringLiteral("/v1/me/tracks"), QUrlQuery {{QStringLiteral("limit"), QStringLiteral("50")}}),
-                          accessToken, [&result](const QJsonObject &page) { appendWrappedTracks(result, page); });
+    co_await collectOffsetPages(QStringLiteral("/v1/me/tracks"), {}, accessToken,
+                                [&result](const QJsonObject &page) { appendWrappedTracks(result, page); });
     co_return result;
 }
 

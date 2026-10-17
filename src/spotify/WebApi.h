@@ -63,6 +63,13 @@ private:
     /// rather than a loop.
     QCoro::Task<> collectPages(QUrl firstUrl, QString accessToken,
                                std::function<void(const QJsonObject &page)> onPage);
+    /// every page of a list that pages by offset, the first alone for its
+    /// total and the rest a few at a time, handed to `onPage` in order. a list
+    /// of a thousand songs comes in the time of five pages, not twenty.
+    QCoro::Task<> collectOffsetPages(QString path, QUrlQuery query, QString accessToken,
+                                     std::function<void(const QJsonObject &page)> onPage);
+    /// one page, waited for and asked again once if spotify says to slow down
+    QCoro::Task<QJsonObject> requestPage(QUrl url, QString accessToken);
 
     QNetworkAccessManager *m_network;
 };

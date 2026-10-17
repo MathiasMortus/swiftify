@@ -428,6 +428,16 @@ Item {
         IconButton {
             anchors.verticalCenter: parent.verticalCenter
             scheme: root.scheme
+            symbol: "art_track"
+            size: root.buttonSize
+            iconSize: root.tiny ? 18 : 20
+            toggled: Player.showingNowPlaying
+            tooltip: "Now Playing View"
+            onClicked: Player.toggleNowPlayingPanel()
+        }
+        IconButton {
+            anchors.verticalCenter: parent.verticalCenter
+            scheme: root.scheme
             symbol: "lyrics"
             size: root.buttonSize
             iconSize: root.tiny ? 18 : 20
