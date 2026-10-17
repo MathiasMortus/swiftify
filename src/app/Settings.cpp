@@ -159,6 +159,7 @@ void Settings::load()
     m_showWindowControls = stored<bool>(m_store, "showWindowControls", m_showWindowControls);
     m_nativeTitleBar = stored<bool>(m_store, "nativeTitleBar", m_nativeTitleBar);
     m_trayIcon = stored<bool>(m_store, "trayIcon", m_trayIcon);
+    m_zoom = std::clamp(stored<double>(m_store, "zoom", m_zoom), 0.5, 2.0);
 }
 
 void Settings::setVisualizersEnabled(bool value)
@@ -431,6 +432,17 @@ void Settings::setTrayIcon(bool value)
     m_trayIcon = value;
     m_store.setValue(QStringLiteral("trayIcon"), value);
     emit trayIconChanged();
+}
+
+void Settings::setZoom(double raw)
+{
+    const double value = std::clamp(raw, 0.5, 2.0);
+    if (qFuzzyCompare(m_zoom, value)) {
+        return;
+    }
+    m_zoom = value;
+    m_store.setValue(QStringLiteral("zoom"), value);
+    emit zoomChanged();
 }
 
 } // namespace swiftify

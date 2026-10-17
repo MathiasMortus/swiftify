@@ -1,7 +1,9 @@
 #pragma once
 
+#include "app/Paths.h"
 #include "core/Async.h"
 #include "library/CollectionModels.h"
+#include "library/SongListCache.h"
 #include "library/SongListModel.h"
 #include "spotify/SpotifyTypes.h"
 
@@ -388,6 +390,8 @@ private:
     bool m_savingPlaylist = false;
 
     RecentlyOpened<QList<Song>> m_openedPlaylists {8};
+    /// the playlists' and saved songs' last loaded lists, kept across restarts
+    SongListCache m_songListCache {paths::cacheDirectory() + QStringLiteral("/song-lists")};
     RecentlyOpened<QList<Song>> m_openedAlbums {8};
     RecentlyOpened<ArtistDetail> m_openedArtists {8};
 

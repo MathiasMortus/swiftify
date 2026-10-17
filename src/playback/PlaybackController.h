@@ -63,6 +63,7 @@ class PlaybackController : public QObject {
 
     Q_PROPERTY(bool showingLyrics READ isShowingLyrics WRITE setShowingLyrics NOTIFY panelsChanged FINAL)
     Q_PROPERTY(bool showingQueue READ isShowingQueue WRITE setShowingQueue NOTIFY panelsChanged FINAL)
+    Q_PROPERTY(bool showingNowPlaying READ isShowingNowPlaying WRITE setShowingNowPlaying NOTIFY panelsChanged FINAL)
 
     Q_PROPERTY(bool sleepTimerRunning READ isSleepTimerRunning NOTIFY sleepTimerChanged FINAL)
     Q_PROPERTY(QDateTime sleepTimerDeadline READ sleepTimerDeadline NOTIFY sleepTimerChanged FINAL)
@@ -124,8 +125,10 @@ public:
 
     bool isShowingLyrics() const { return m_showingLyrics; }
     bool isShowingQueue() const { return m_showingQueue; }
+    bool isShowingNowPlaying() const { return m_showingNowPlaying; }
     void setShowingLyrics(bool showing);
     void setShowingQueue(bool showing);
+    void setShowingNowPlaying(bool showing);
 
     bool isSleepTimerRunning() const { return m_sleepTimerDeadline.isValid(); }
     QDateTime sleepTimerDeadline() const { return m_sleepTimerDeadline; }
@@ -178,6 +181,7 @@ public:
     Q_INVOKABLE void cycleRepeatMode();
     Q_INVOKABLE void toggleLyricsPanel();
     Q_INVOKABLE void toggleQueuePanel();
+    Q_INVOKABLE void toggleNowPlayingPanel();
     Q_INVOKABLE void seekToLyricLine(int index);
     Q_INVOKABLE void startSleepTimer(int seconds, const QString &fade);
     Q_INVOKABLE void cancelSleepTimer();
@@ -286,6 +290,7 @@ private:
     int m_activeLyricIndex = -1;
     bool m_showingLyrics = true;
     bool m_showingQueue = false;
+    bool m_showingNowPlaying = false;
 
     QTimer m_sleepTimer;
     QDateTime m_sleepTimerDeadline;
